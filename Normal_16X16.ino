@@ -18,7 +18,6 @@
 #include <Arduino.h>
 #include <RousisMatrix16.h>
 #include <fonts/Big_font.h>
-#include <fonts/Big_font_2.h>
 #include <fonts/SystemFont5x7_greek.h>
 #include "BluetoothSerial.h"
 #if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
@@ -26,9 +25,9 @@
 #endif
 BluetoothSerial SerialBT;
 
-const char Company[] = { "Rousis LTD" };
-const char Device[] = { "Matrix 16" };
-const char Version[] = { "V.1.2    " };
+const char Company[] = { "Rousis" };
+const char Device[] = { "Matrix16" };
+const char Version[] = { "V.1.1" };
 const char Init_start[] = { "ROUSIS SYSTEMS" };
 static char  receive_packet[256] = { 0 };
 //uint8_t incoming_bytes = 0;
@@ -80,7 +79,7 @@ void IRAM_ATTR FlashInt()
 
     if (flash_on)
     {
-        if (double_line && flash_l1)
+        if (double_line)
         {
             myLED.drawString(center_1l, 0, page, char_count_1L, 2);
         }
@@ -109,17 +108,17 @@ TaskHandle_t Task0;
 
 void setup()
 {
-    Serial.begin(115200);
+    // Serial.begin(115200);
     SerialBT.begin("Rousis Display"); //Bluetooth device name
     //Serial.println("The device started, now you can pair it with bluetooth!");
 
     myLED.displayEnable();     // This command has no effect if you aren't using OE pin
-    myLED.selectFont(SystemFont5x7_greek); //font1
+    myLED.selectFont(Big_font); //font1
 
     uint8_t cpuClock = ESP.getCpuFreqMHz();
     //myLED.displayBrightness(0);
     // 
-    myLED.displayBrightness(255);
+    myLED.displayBrightness(100);
     //myLED.normalMode();    
     // Configure the Prescaler at 80 the quarter of the ESP32 is cadence at 80Mhz
     // 80000000 / 80 = 1000 tics / seconde
@@ -143,11 +142,9 @@ void setup()
     Serial.println("Display Initial Message");
 
     myLED.clearDisplay();
-    myLED.drawString(0, 0, Company, 10, 2);
-    myLED.drawString(0, 8, Device, 10, 2);
+    myLED.drawString(0, 0, "ROUSIS LTD", 10, 2);
     delay(3000);
-    myLED.drawString(0, 8, Version, 10, 2);
-    delay(3000);
+
     myLED.clearDisplay();
     myLED.drawString(0, 0, Init_start, sizeof(Init_start), 2);
     delay(100);
@@ -226,9 +223,7 @@ void Task0code(void* pvParameters) {
                     for (uint16_t a = 0; a < sizeof(page_b); a++) { page_b[a] = 0; }
 
                     delay_page = receive_packet[cnt_page_byte++] & 0x0f;
-                    uint8_t funt_L1 = false; uint8_t funt_L2 = false;
                     uint8_t function_byte = receive_packet[cnt_page_byte++];
-                    funt_L1 = function_byte & 0x1F;
                     if (function_byte & 0b00100000) { double_line = 1; }
                     if (function_byte & 0b01000000) { if (line_2) { flash_l2 = 1; } else { flash_l1 = 1; } }
                     char_count_1L = 0; char_count_2L = 0;
@@ -241,21 +236,11 @@ void Task0code(void* pvParameters) {
                         switch (b)
                         {
                         case 0xd6:
-                            if (receive_packet[cnt_page_byte] == '0' || receive_packet[cnt_page_byte] == '1')
-                            {
-                                Select_font = receive_packet[cnt_page_byte++];
-                            }
-                            else if (line_2 && b) {
-                                page_b[char_count_2L++] = b;
-                            }
-                            else if (b) {
-                                page[char_count_1L++] = b;
-                            }                            
+                            Select_font = receive_packet[cnt_page_byte++];
                             break;
                         case 0x05:
                             line_2 = 1;
                             function_byte = receive_packet[cnt_page_byte++];
-                            funt_L2 = function_byte & 0x1F;
                             if (function_byte & 0b01000000) { if (line_2) { flash_l2 = 1; } else { flash_l1 = 1; } }
                             //cnt_page_byte++; //??? function 2
                             break;
@@ -277,15 +262,8 @@ void Task0code(void* pvParameters) {
                     }
 
                     if (double_line) {
+                        myLED.selectFont(Big_font);
                         space_px = 2;
-                        if (Select_font == '1')
-                        {
-                            myLED.selectFont(Big_font_2);
-                        }
-                        else {
-                            myLED.selectFont(Big_font);
-                        }
-                        
                     }
                     else
                     {
@@ -318,10 +296,10 @@ void Task0code(void* pvParameters) {
 
                         if (double_line)
                         {
-                            if (Legth_page > PIXELS_X || funt_L1 == 1)
+                            if (Legth_page > PIXELS_X)
                             {
                                 flash_l1 = 0;
-                                myLED.scrollingString(0, 0, page, char_count_1L, 2, delay_page);
+                                myLED.scrollingString(0, 0, page, char_count_1L, 2);
                             }
                             else {
                                 myLED.drawString(center_1l, 0, page, char_count_1L, 2);
@@ -330,11 +308,11 @@ void Task0code(void* pvParameters) {
                         }
                         else
                         {
-                            if (Legth_page_b > PIXELS_X || funt_L2 == 1)
+                            if (Legth_page_b > PIXELS_X)
                             {
                                 flash_l2 = 0;
                                 myLED.drawString(center_1l, 0, page, char_count_1L, 1);
-                                myLED.scrollingString(0, 9, page_b, char_count_2L, 1, delay_page);
+                                myLED.scrollingString(0, 9, page_b, char_count_2L, 1);
                             }
                             else
                             {
