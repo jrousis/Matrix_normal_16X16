@@ -10,10 +10,16 @@
 */
 // Visual Micro is in vMicro>General>Tutorial Mode
 // 
-#define PIXELS_X 96
+#define PIXELS_X 128
 #define PIXELS_Y 16
-#define PIXELS_ACROSS 96      //pixels across x axis (base 2 size expected)
+#define PIXELS_ACROSS 128      //pixels across x axis (base 2 size expected)
 #define PIXELS_DOWN	16      //pixels down y axis
+#define DRIVER_PIN_EN 26
+#define PHOTO_SAMPLES 60
+
+#define FLR_TRAFFIC 1
+#define FLR_LEFT_SLIDE_SPEED 32
+#define FLR_SLIDE_STEPS 21
 
 #include <Arduino.h>
 #include <RousisMatrix16.h>
@@ -28,9 +34,18 @@ BluetoothSerial SerialBT;
 
 const char Company[] = { "Rousis LTD" };
 const char Device[] = { "Matrix 16" };
-const char Version[] = { "V.1.2    " };
+const char Version[] = { "V.1.3    " };
 const char Init_start[] = { "ROUSIS SYSTEMS" };
 static char  receive_packet[256] = { 0 };
+
+// Potentiometer is connected to GPIO 34 (Analog ADC1_CH6) 
+const int photoPin = 39;
+// variable for storing the potentiometer value
+uint8_t photoValue = 0;
+uint8_t brightness = 255;
+uint8_t sample_metter = 0;
+uint8_t brigthsamples[PHOTO_SAMPLES];
+
 //uint8_t incoming_bytes = 0;
 uint16_t  _cnt_byte = 0;
 uint16_t packet_cnt = 0;
@@ -102,6 +117,7 @@ void IRAM_ATTR FlashInt()
         flash_on = true;
     }
 
+    Photo_sample();
     portEXIT_CRITICAL_ISR(&falshMux);
 }
 
@@ -119,10 +135,16 @@ void setup()
     uint8_t cpuClock = ESP.getCpuFreqMHz();
     //myLED.displayBrightness(0);
     // 
-    myLED.displayBrightness(255);
-    //myLED.normalMode();    
-    // Configure the Prescaler at 80 the quarter of the ESP32 is cadence at 80Mhz
-    // 80000000 / 80 = 1000 tics / seconde
+   // myLED.displayBrightness(255);
+    Serial.print("Readed Startup Sample: ");
+    Serial.println(analogRead(photoPin));
+    photoValue = (256 / 4095, 0) * analogRead(photoPin);
+    brightness = 255 - photoValue;
+    if (!brightness) { brightness = 10; }
+    myLED.displayBrightness(brightness);
+    Serial.print("First sample brightness: ");
+    Serial.println(brightness);
+
     timer = timerBegin(0, 20, true);
     timerAttachInterrupt(timer, &onTime, true);
     Serial.println("Initialize LED matrix display");
@@ -142,14 +164,19 @@ void setup()
     digitalWrite(RS485_PIN_DIR, RS485_READ);
     Serial.println("Display Initial Message");
 
+    pinMode(DRIVER_PIN_EN, OUTPUT);
+    digitalWrite(DRIVER_PIN_EN, LOW);
     myLED.clearDisplay();
-    myLED.drawString(0, 0, Company, 10, 2);
-    myLED.drawString(0, 8, Device, 10, 2);
-    delay(3000);
-    myLED.drawString(0, 8, Version, 10, 2);
-    delay(3000);
-    myLED.clearDisplay();
-    myLED.drawString(0, 0, Init_start, sizeof(Init_start), 2);
+    if (!FLR_TRAFFIC)
+    {
+        myLED.drawString(0, 0, Company, 10, 2);
+        myLED.drawString(0, 8, Device, 10, 2);
+        delay(3000);
+        myLED.drawString(0, 8, Version, 10, 2);
+        delay(3000);
+        myLED.clearDisplay();
+        myLED.drawString(0, 0, Init_start, sizeof(Init_start), 2);
+    }
     delay(100);
 
     //create a task that will be executed in the Task1code() function, with priority 1 and executed on core 0
@@ -161,7 +188,7 @@ void setup()
         0,           /* priority of the task */
         &Task0,      /* Task handle to keep track of created task */
         0);          /* pin task to core 0 */
-    delay(500);
+    delay(100);
 }
 
 void Task0code(void* pvParameters) {
@@ -177,9 +204,18 @@ void Task0code(void* pvParameters) {
     uint8_t space_px = 1;
 
     myLED.clearDisplay();
-    myLED.selectFont(SystemFont5x7_greek); //Big_font
+     //Big_font
     //myLED.selectFont(Big_font); //
-    myLED.drawString(0, 9, "Empty...", 8, 1);
+    if (FLR_TRAFFIC)
+    {
+        myLED.selectFont(Big_font);
+        myLED.drawString(32, 0, "_ _ _ _ _", 8, 1);
+    }
+    else {
+        myLED.selectFont(SystemFont5x7_greek);
+        myLED.drawString(0, 9, "Empty...", 8, 1);
+    }
+    
 
     for (;;) {  //create an infinate loop  
         // while (messages_enable == false){}
@@ -321,11 +357,59 @@ void Task0code(void* pvParameters) {
                             if (Legth_page > PIXELS_X || funt_L1 == 1)
                             {
                                 flash_l1 = 0;
-                                myLED.scrollingString(0, 0, page, char_count_1L, 2, delay_page);
+                                myLED.scrollingString(0, 0, page, char_count_1L, 2, delay_page + 2);
                             }
                             else {
-                                myLED.drawString(center_1l, 0, page, char_count_1L, 2);
-                                delay((delay_page) * 1000);
+                                if (FLR_TRAFFIC && page[0] == '<' && funt_L1 == 0x03) // function for left slide
+                                {
+                                    uint8_t A = 20;
+                                    uint8_t B = 4;
+                                    size_t i;
+                                    for (i = 0; i < FLR_SLIDE_STEPS; i++)
+                                    {
+                                        myLED.drawString(center_1l - i, 0, page, char_count_1L, 2);
+                                        delay(FLR_LEFT_SLIDE_SPEED);
+                                    }
+                                    for (i = 0; i < FLR_SLIDE_STEPS; i++)
+                                    {
+                                        myLED.drawString(center_1l - i, 0, page, char_count_1L, 2);
+                                        delay(FLR_LEFT_SLIDE_SPEED);
+                                    }
+                                    for (i = 0; i < FLR_SLIDE_STEPS; i++)
+                                    {
+                                        myLED.drawString(center_1l - i, 0, page, char_count_1L, 2);
+                                        delay(FLR_LEFT_SLIDE_SPEED);
+                                    }
+                                }
+                                else if (FLR_TRAFFIC && page[0] == '>' && funt_L1 == 0x04) // function for left slide
+                                {
+                                    uint8_t A = 20;
+                                    uint8_t B = 4;
+                                    size_t i;
+                                    for (i = 0; i < FLR_SLIDE_STEPS; i++)
+                                    {
+                                        myLED.drawString(center_1l + i, 0, page, char_count_1L, 2);
+                                        delay(FLR_LEFT_SLIDE_SPEED);
+                                        myLED.clearDisplay();
+                                    }
+                                    for (i = 0; i < FLR_SLIDE_STEPS; i++)
+                                    {
+                                        myLED.drawString(center_1l + i, 0, page, char_count_1L, 2);
+                                        delay(FLR_LEFT_SLIDE_SPEED);
+                                        myLED.clearDisplay();
+                                    }
+                                    for (i = 0; i < FLR_SLIDE_STEPS; i++)
+                                    {
+                                        myLED.drawString(center_1l + i, 0, page, char_count_1L, 2);
+                                        delay(FLR_LEFT_SLIDE_SPEED);
+                                        myLED.clearDisplay();
+                                    }
+                                }
+                                else {
+                                    myLED.drawString(center_1l, 0, page, char_count_1L, 2);
+                                    delay((delay_page) * 1000);
+                                }
+                                
                             }
                         }
                         else
@@ -346,7 +430,7 @@ void Task0code(void* pvParameters) {
 
                     }
 
-                    Serial.println("Display page : ");
+                    /*Serial.println("Display page : ");
                     Serial.print("Line 1: ");
                     Serial.print(page);
                     Serial.print(" - Chars: ");
@@ -356,14 +440,16 @@ void Task0code(void* pvParameters) {
                     Serial.print(" - Chars: ");
                     Serial.println(char_count_2L);
                     Serial.print("Brightness: ");
-                    Serial.println(bright);
+                    Serial.println(bright); 
+                    Serial.print("function_byte: ");
+                    Serial.println(funt_L1, HEX);
                     Serial.print("Page Delay : ");
                     Serial.println(delay_page);
                     Serial.print("Double line : ");
                     Serial.println(double_line);
                     Serial.print("Flash : ");
                     Serial.print(flash_l1); Serial.println(flash_l2);
-                    Serial.println("........................................");
+                    Serial.println("........................................");*/
 
                 }
             }
@@ -655,3 +741,34 @@ void Replay_OK(void) {
     digitalWrite(RS485_PIN_DIR, RS485_READ);
 }
 
+void Photo_sample() {
+    if (sample_metter < PHOTO_SAMPLES)
+    {
+        photoValue = (255 / 4095.0) * analogRead(photoPin);
+        brigthsamples[sample_metter++] = 255 - photoValue;
+    }
+    else {
+        int sum_smpl = 0;
+        for (size_t i = 0; i < PHOTO_SAMPLES; i++)
+        {
+            sum_smpl += brigthsamples[i];
+        }
+        brightness = sum_smpl / PHOTO_SAMPLES;
+        sample_metter = 0;
+        if (!brightness) { brightness = 10; }
+        myLED.displayBrightness(brightness);
+
+        Serial.println();
+        Serial.print("New average brightness: ");
+        Serial.println(brightness);
+
+        /*for (size_t i = 0; i < sizeof(brigthsamples); i++)
+        {
+            Serial.print(brigthsamples[i]); Serial.print(" ");
+        }
+        Serial.println();*/
+
+        Serial.print("Readed Sample: ");
+        Serial.println(analogRead(photoPin));
+    }
+}

@@ -16,11 +16,9 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Matrix_normal_16X16.ino" />
+    <ClCompile Include="Normal_16X16.ino" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="__vm\.Normal_16X16.vsarduino.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="__vm\.Matrix_normal_16X16.vsarduino.h">
       <Filter>Header Files</Filter>
     </ClInclude>
