@@ -24,5 +24,8 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="README.md" />
+    <None Include="post_build.bat">
+      <Filter>Source Files</Filter>
+    </None>
   </ItemGroup>
 </Project>

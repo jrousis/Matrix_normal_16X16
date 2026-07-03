@@ -10,7 +10,7 @@
 */
 // Visual Micro is in vMicro>General>Tutorial Mode
 // 
-#define MODULE_X 4
+#define MODULE_X 5
 #define MODULE_Y 1
 #define SCAN_TYPE STATIC_SCAN
 #define PIXELS_X (MODULE_X * 16)
@@ -19,9 +19,11 @@
 #define DRIVER_PIN_EN 26
 #define PHOTO_SAMPLES 60
 
-#define FLR_TRAFFIC 0
-#define FLR_LEFT_SLIDE_SPEED 32
-#define FLR_SLIDE_STEPS 21
+#define TIMEOUT_MESSAGE false
+#define MESSAGE_TIMEOUT_S (5UL * 60UL * 1000UL) // 5 minutes in milliseconds
+
+//#define FLR_LEFT_SLIDE_SPEED 32
+//#define FLR_SLIDE_STEPS 21
 
 #include <Arduino.h>
 #include <RousisMatrix16_Static.h>
@@ -35,7 +37,7 @@
 
 const char Company[] = { "Rousis LTD" };
 const char Device[] = { "Matrix 16" };
-const char Version[] = { "V.2.0    " };
+const char Version[] = { "V.2.1    " };
 const char Init_start[] = { "ROUSIS SYSTEMS" };
 static char  receive_packet[256] = { 0 };
 
@@ -48,8 +50,9 @@ uint8_t brightness = 255;
 int sample_metter = -1;
 bool bright_sens = true;
 uint8_t patern_index = 0;
-unsigned long time_delay = 0;
-unsigned long message_delay = 0;
+unsigned long photo_delay = 0;
+unsigned long message_timeout = 0;
+bool timeout_flag = false;
 uint8_t brigthsamples[PHOTO_SAMPLES];
 
 //uint8_t incoming_bytes = 0;
@@ -178,19 +181,18 @@ void setup()
     pinMode(DRIVER_PIN_EN, OUTPUT);
     digitalWrite(DRIVER_PIN_EN, LOW);
     myLED.clearDisplay();
-    if (!FLR_TRAFFIC)
-    {
-        myLED.drawString(0, 0, Company, 10, 1);
-        myLED.drawString(0, 8, Device, 10, 1);
-		myLED.scanDisplay();
-        delay(3000);
-        myLED.drawString(0, 8, Version, 10, 1);
-		myLED.scanDisplay();
-        delay(3000);
-        myLED.clearDisplay();
-        myLED.drawString(0, 0, Init_start, sizeof(Init_start), 1);
-		myLED.scanDisplay();
-    }
+    
+    myLED.drawString(0, 0, Company, 10, 1);
+    myLED.drawString(0, 8, Device, 10, 1);
+    myLED.scanDisplay();
+    delay(3000);
+    myLED.drawString(0, 8, Version, 10, 1);
+    myLED.scanDisplay();
+    delay(3000);
+    myLED.clearDisplay();
+    myLED.drawString(0, 0, Init_start, sizeof(Init_start), 1);
+    myLED.scanDisplay();
+    
     delay(100);
 
     //create a task that will be executed in the Task1code() function, with priority 1 and executed on core 0
@@ -215,6 +217,10 @@ void setup()
 		1);          /* pin task to core 1 */
 	delay(100);
     
+    if (TIMEOUT_MESSAGE)
+    {
+        message_timeout = millis();
+	}
 }
 
 void Task0code(void* pvParameters) {
@@ -249,12 +255,8 @@ void Task0code(void* pvParameters) {
 
     for (;;) {  //create an infinate loop  
         // while (messages_enable == false){}
-        if (!test_enable) {
+        if (!test_enable && !timeout_flag) {
             messages_enable = true;
-        }
-        else {
-            display_test_paterns();
-            delay(2000);
         }
 
         //for ( i = 0; i < sizeof(page); i++){page[i] = 0;}
@@ -616,10 +618,12 @@ void loop()
                             //Serial.println("_________________________________");
                             // analyse_receive_pages(incoming_bytes);
 
-							myLED.stop_flag = true;
+							
                             delay(10);
                             Replay_OK();
-                            //messages_enable = true;
+                            if (TIMEOUT_MESSAGE) { message_timeout = millis();}
+                            myLED.stop_flag = true;
+							timeout_flag = false;
                             messages_enable = false;
                             break;
                         }
@@ -693,11 +697,34 @@ void loop()
         } while (rs485.available() > 0);
     }
 
-    if ((millis() - time_delay) > PHOTO_SAMPLE_DELAY)
+    if ((millis() - photo_delay) > PHOTO_SAMPLE_DELAY)
     {
         Photo_sample();
-        time_delay = millis();
+        photo_delay = millis();
     }
+
+#if TIMEOUT_MESSAGE
+    const unsigned long now = millis();
+    if (messages_enable && (now - message_timeout) > MESSAGE_TIMEOUT_S)
+    {
+        // Stop any ongoing animations/scrolling immediately
+        myLED.stop_flag = true;
+        messages_enable = false;
+        timeout_flag = true;
+
+        // Disable flashing to prevent TaskFlash from drawing and wasting CPU
+        flash_l1 = 0;
+        flash_l2 = 0;
+        double_line = 0;
+
+        myLED.clearDisplay();
+        myLED.scanDisplay();
+
+        message_timeout = now;
+
+        Serial.println(F("Message timeout - Clear display"));
+    }
+#endif
 
     delay(10);
 }
